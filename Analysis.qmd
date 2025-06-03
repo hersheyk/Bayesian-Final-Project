@@ -13,3 +13,24 @@ editor: source
  - Exercise 24.3 
 
 2. https://www.flutterbys.com.au/stats/tut/tut11.2b.html
+
+
+```{r, message = FALSE, echo = TRUE}
+#| label: load-packages
+library(brms)
+library(tidybayes)
+library(dplyr)
+```
+
+```{r}
+#| label: read-csv
+indfood <- read.csv(here::here("Ifood_new.csv"))
+```
+
+```{r}
+indfood <- indfood |> 
+  filter(flavor_profile != "-1")
+```
+
+
+
