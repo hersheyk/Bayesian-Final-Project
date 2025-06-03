@@ -28,9 +28,49 @@ indfood <- read.csv(here::here("Ifood_new.csv"))
 ```
 
 ```{r}
+#| label: data-cleaning
 indfood <- indfood |> 
   filter(flavor_profile != "-1")
 ```
+
+```{r}
+summary(food)
+food
+```
+
+```{r}
+indfood <-indfood |> mutate(dum_diet = if_else(diet == "vegetarian", 1, 2))
+```
+
+```{r}
+fit <- brm(data = indfood,
+           family = gaussian(),
+           dum_diet ~ 1 + flavor_profile,
+           iter = 3500,
+           warmup = 1000,
+           chains = 4,
+           refresh = 0)
+```
+
+```{r}
+n_rep = 10000
+
+# value of x
+x = 20
+
+# simulate parameters from prior distribution
+beta0 = rnorm(n_rep, 0, 1)
+beta1 = rnorm(n_rep, 1, 0.5)
+sigma = rexp(n_rep, 1 / 5)
+
+# simulate values of percent body fat based on assumptions of regression model
+y = rnorm(n_rep, beta0 + beta1 * x, sigma)
+
+hist(y, xlab = "Prior predicted PBF(%) for BMI of 20 kg/m^2",
+     breaks = 100,
+     col = bayes_col["prior_predict"])
+```
+
 
 
 
