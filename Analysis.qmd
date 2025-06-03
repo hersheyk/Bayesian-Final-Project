@@ -1,0 +1,15 @@
+---
+title: "Bayesian Chi Squared Procedures"
+author: "Alisa Krasilnikov"
+format: html
+embed-resources: true
+editor: source
+---
+
+# References: 
+ 
+1. Doing Bayesian data analysis:
+ - Chapter 24 - Count Predicted Variables
+ - Exercise 24.3 
+
+2. https://www.flutterbys.com.au/stats/tut/tut11.2b.html
