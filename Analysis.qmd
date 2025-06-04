@@ -24,7 +24,7 @@ library(tidybayes)
 library(dplyr)
 ```
 
-Our dataset is the Indian food data set from Kaggle <https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with>. This is a set which pulls data from online Indian food recipes, and classifies them in various categories. We are particularly interested in whether there is a difference in flavor profile (spicy, sweet, bitter, and sour) across diets (vegetarian and non-vegetarian). 
+Our dataset is the Indian food data set from Kaggle <https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with>. This is a set which pulls data from online Indian food recipes, and classifies them in various categories. We are particularly interested in whether there is a difference in flavor profile (spicy, sweet, and bitter) across diets (vegetarian and non-vegetarian). 
 
 ```{r}
 #| label: read-csv
@@ -34,7 +34,8 @@ indfood <- read.csv(here::here("Ifood_new.csv"))
 ```{r}
 #| label: data-cleaning
 indfood <- indfood |> 
-  filter(flavor_profile != "-1") |>
+  filter(flavor_profile != "-1",
+         flavor_profile != "sour") |> #There is only one sour dish in the dataset
   mutate(dum_diet = if_else(diet == "vegetarian", 1, 0))
 
 ```
@@ -50,7 +51,7 @@ summary(indfood)
 
 We’ll assume the betas and sigma are independent. We believe that if a dish is sweet rather than bitter, then it will most likely be a vegetarian dish, since we couldn't think of many examples of desserts which were not vegetarian. Therefore, we specify an informative prior for the coefficient of the sweet flavor profile that reflects our belief that it increases the probability a dish is vegetarian (i.e., that it pushes the log-odds in a positive direction):
 
-$\beta_{sweet}$ ~ N(0.75, 0.25)
+$\beta_{sweet}$ ~ N(0.75, 0.2)
 
 This prior centers the log-odds increase at 0.75 (approximately corresponding to a 68% chance of being vegetarian, all else equal), while still allowing moderate uncertainty. For the other coefficients, we do not have strong prior opinions, and we allow brms to apply its default weakly informative priors.
 
@@ -60,7 +61,7 @@ This prior centers the log-odds increase at 0.75 (approximately corresponding to
 n_rep = 10000
 
 beta0 <- rnorm(n_rep, 0, 1)
-beta_sweet <- rnorm(n_rep, 0.75, 0.25)
+beta_sweet <- rnorm(n_rep, 0.75, 0.2)
 
 log_odds <- beta0 + beta_sweet * sweet
 
@@ -76,11 +77,11 @@ hist(p,
 ```
 This isn't exactly what we want. The range is a little bit too big, but we like where it's centered. Let's adjust it a little bit so the effect of sweetness is a little bit stronger.
 
-$\beta_{sweet}$ ~ N(1, 0.1)
+$\beta_{sweet}$ ~ N(1.75, 0.5)
 
 ```{r}
 beta_0 <- rnorm(n_rep, 0, 1)
-beta_sweet <- rnorm(n_rep, 1, 0.1)
+beta_sweet <- rnorm(n_rep, 1.75, 0.5)
 
 log_odds <- beta0 + beta_sweet
 
@@ -94,7 +95,7 @@ hist(p,
      col = "pink",
      main = "Prior Predictive Distribution")
 ```
-This looks much better.
+This looks a little better!
 
 ```{r}
 n_rep = 1000
@@ -104,7 +105,7 @@ x <- sample(c(0, 1), n_rep, replace = TRUE)
 
 # Priors for coefficients
 beta0 <- rnorm(n_rep, 0, 1)           # intercept
-beta1 <- rnorm(n_rep, 1, 0.1)      # effect for sweet = 1
+beta1 <- rnorm(n_rep, 1.75, 0.5)      # effect for sweet = 1
 
 
 # Compute probabilities for x = 0 and x = 1
@@ -112,7 +113,7 @@ p0 <- plogis(beta0 + beta1 * 0)  # bitter
 p1 <- plogis(beta0 + beta1 * 1)  # sweet
 
 # Plot histograms
-hist(p0, breaks=100, col=rgb(0,0,1,0.4), xlim=c(0,1), ylim = c(0, 40),
+hist(p0, breaks=100, col=rgb(0,0,1,0.4), xlim=c(0,1), ylim = c(0, 50),
      main="Prior Predictive Distribution of P(Vegetarian)",
      xlab="Probability", ylab="Frequency")
 hist(p1, breaks=100, col=rgb(1,0,0,0.4), add=TRUE)
@@ -129,10 +130,10 @@ fit <- brm(
   family = bernoulli(link = "logit"),
   dum_diet ~ 1 + flavor_profile,
   prior = c(
-    prior(normal(1, 0.1), class = "b", coef = "flavor_profilesweet")
+    prior(normal(1.75, 0.5), class = "b", coef = "flavor_profilesweet")
     # No need to set priors for other coefficients, since we're happy with defaults
   ),
-  iter = 6000,
+  iter = 4000,
   warmup = 1000,
   control = list(max_treedepth = 15),
   chains = 4,
@@ -143,9 +144,5 @@ fit <- brm(
 ```{r}
 summary(fit)
 ```
-
-
-
-
 
 
