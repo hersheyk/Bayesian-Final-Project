@@ -1,19 +1,21 @@
 ---
 title: "Bayesian Chi Squared Procedures"
-author: "Alisa Krasilnikov"
+author: "Alisa Krasilnikov, Harshini Karthikeyan"
 format: html
 embed-resources: true
 editor: source
 ---
 
-# References: 
- 
-1. Doing Bayesian data analysis:
- - Chapter 24 - Count Predicted Variables
- - Exercise 24.3 
+# References:
 
-2. https://www.flutterbys.com.au/stats/tut/tut11.2b.html
+1.  Doing Bayesian data analysis:
 
+-   Chapter 24 - Count Predicted Variables
+-   Exercise 24.3
+
+2.  https://www.flutterbys.com.au/stats/tut/tut11.2b.html
+
+3.  https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with
 
 ## Data
 
@@ -22,9 +24,10 @@ editor: source
 library(brms)
 library(tidybayes)
 library(dplyr)
+library(broom)
 ```
 
-Our dataset is the Indian food data set from Kaggle <https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with>. This is a set which pulls data from online Indian food recipes, and classifies them in various categories. We are particularly interested in whether there is a difference in flavor profile (spicy, sweet, and bitter) across diets (vegetarian and non-vegetarian). 
+Our dataset is the Indian food data set from Kaggle <https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with>. This is a set which pulls data from online Indian food recipes, and classifies them in various categories. We are particularly interested in whether there is a difference in flavor profile (spicy, sweet, and bitter) across diets (vegetarian and non-vegetarian).
 
 ```{r}
 #| label: read-csv
@@ -45,24 +48,40 @@ indfood <- indfood |>
 summary(indfood)
 ```
 
+### Research Question:
+
+**Is there a relationship between the flavor profile of Indian dishes and whether they are vegetarian or not?**
+
+We will try to answer this question by modeling diet (vegetarian or non-vegetarian) as a function of flavor profile (sweet, spicy, or bitter), using Bayesian logistic regression.
+
+### Weaknesses of the Data
+
+There is complete separation of sweetness/bitterness and vegetarian, with all sweet or bitter foods in our data being vegetarian. Thus this dataset would be unable to be run with a frequentist approach, but choosing an adequate prior might allow for it to work with Bayesian statistics. Additionally, we dropped the flavor_profile sour as there is only one sour dish in the entire dataset.
+
+```{r}
+indfood |> group_by(diet) |> count(flavor_profile)
+
+```
+
 ## Bayesian model
 
 ### Choosing Priors
 
 We’ll assume the betas and sigma are independent. We believe that if a dish is sweet rather than bitter, then it will most likely be a vegetarian dish, since we couldn't think of many examples of desserts which were not vegetarian. Therefore, we specify an informative prior for the coefficient of the sweet flavor profile that reflects our belief that it increases the probability a dish is vegetarian (i.e., that it pushes the log-odds in a positive direction):
 
-$\beta_{sweet}$ ~ N(0.75, 0.2)
+$\beta_{sweet}$ \~ N(0.75, 0.2)
 
 This prior centers the log-odds increase at 0.75 (approximately corresponding to a 68% chance of being vegetarian, all else equal), while still allowing moderate uncertainty. For the other coefficients, we do not have strong prior opinions, and we allow brms to apply its default weakly informative priors.
 
-
 **Prior predictive dist for sweet dish**
+
 ```{r}
 n_rep = 10000
 
 beta0 <- rnorm(n_rep, 0, 1)
 beta_sweet <- rnorm(n_rep, 0.75, 0.2)
 
+sweet <- sample(c(0, 1), n_rep, replace = TRUE)
 log_odds <- beta0 + beta_sweet * sweet
 
 p <- 1 / (1 + exp(-log_odds))
@@ -75,9 +94,10 @@ hist(p,
      col = "pink",
      main = "Prior Predictive Distribution")
 ```
+
 This isn't exactly what we want. The range is a little bit too big, but we like where it's centered. Let's adjust it a little bit so the effect of sweetness is a little bit stronger.
 
-$\beta_{sweet}$ ~ N(1.75, 0.5)
+$\beta_{sweet}$ \~ N(1.75, 0.5)
 
 ```{r}
 beta_0 <- rnorm(n_rep, 0, 1)
@@ -95,6 +115,7 @@ hist(p,
      col = "pink",
      main = "Prior Predictive Distribution")
 ```
+
 This looks a little better!
 
 ```{r}
@@ -142,7 +163,57 @@ fit <- brm(
 ```
 
 ```{r}
-summary(fit)
+summary(fit) 
 ```
 
+### Interpreting Intercepts
 
+The intercept represents the log-odds of a dish being vegetarian when the flavor is bitter. All other coefficients are interpreted relative to this baseline.
+
+The posterior mean for `sweet` is 1.73, telling us dishes with sweet flavor have odds of being vegetarian that are \~5.65 times higher (exp(1.73)) than bitter dishes
+
+The posterior mean for `spicy`is -9.44, telling us dishes with sweet flavor have odds of being vegetarian that are \~7.948e-05 times less (exp(-9.44)) than bitter dishes
+
+```{r}
+exp(-9.44)
+```
+
+## Posterior Prediction
+
+```{r}
+indfood |>
+  add_epred_draws(fit, ndraws = 500) |>
+  group_by(flavor_profile) |>
+  summarise(mean_pred = mean(.epred),
+            .lower = quantile(.epred, 0.025),
+            .upper = quantile(.epred, 0.975))
+
+
+```
+
+**Bitter:(0.933, 1.000)**
+
+Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among bitter recipes lies between 93.3% and 100%. This indicates bitter dishes are very likely to be vegetarian, which follows our data set where all bitter dishes are vegetarian.
+
+**Spicy: (0.742, 0.868)**
+
+Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among spicy recipes lies between 74.2% and 86.8%. As our data has some of the spicy dishes as non-vegetarian this feels more accurate.
+
+**Sweet: (0.988, 1.000)**
+
+Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among sweet recipes lies between 98.8% and 100%. This supports our prior belief that sweet foods are almost always vegetarian.
+
+```{r}
+pp_check(fit, type = "bars")
+
+```
+
+## Frequentist Approach:
+
+```{r}
+# not sure we should do this but maybe?
+table(indfood$flavor_profile, indfood$dum_diet) |> chisq.test()
+
+```
+
+A chi-squared test is inappropriate in this case due to the complete separation of sweetness and bitter that we mentioned previously. In this situation we would have expected cell counts of zero, violating assumptions of the chi-square test and resulting in inflated test statistics or errors.
