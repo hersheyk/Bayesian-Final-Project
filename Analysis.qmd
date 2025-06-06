@@ -17,6 +17,9 @@ editor: source
 
 3.  https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with
 
+4. https://jrnold.github.io/bayesian_notes/separtion.html#quasi-separation
+
+
 ## Data
 
 ```{r, message = FALSE, echo = TRUE}
