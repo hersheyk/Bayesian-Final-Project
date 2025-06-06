@@ -6,7 +6,7 @@ embed-resources: true
 editor: source
 ---
 
-# References:
+## References:
 
 1.  Doing Bayesian data analysis:
 
@@ -17,6 +17,9 @@ editor: source
 
 3.  https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with
 
+4. https://jrnold.github.io/bayesian_notes/separtion.html#quasi-separation
+
+
 ## Data
 
 ```{r, message = FALSE, echo = TRUE}
@@ -25,6 +28,7 @@ library(brms)
 library(tidybayes)
 library(dplyr)
 library(broom)
+library(tidyr)
 ```
 
 Our dataset is the Indian food data set from Kaggle <https://www.kaggle.com/datasets/kritirathi/indian-food-dataset-with>. This is a set which pulls data from online Indian food recipes, and classifies them in various categories. We are particularly interested in whether there is a difference in flavor profile (spicy, sweet, and bitter) across diets (vegetarian and non-vegetarian).
@@ -63,6 +67,22 @@ indfood |> group_by(diet) |> count(flavor_profile)
 
 ```
 
+## Choice of Likelihood and Model Assumptions
+
+We use a Bayesian logistic regression model to investigate whether a dish’s flavor profile (sweet, spicy, or bitter) predicts whether it is vegetarian. The outcome variable, dum_diet, is binary: 1 if the dish is vegetarian and 0 otherwise. Given the binary nature of the response variable, we model the likelihood using a Bernoulli distribution with a logit link function, which is standard for binary outcome models.
+
+Formally, the model assumes:
+
+$dum\_diet_i$ ~ $Bernoulli(p_i)$ with $logit(p_i) = \beta_0 + \beta_1(sweet_i) + \beta_2(spicy_i)$
+
+Here, bitter is the reference category for flavor profile (captured by the intercept, $\beta_0$. The predictors sweet and spicy are treated as dummy variables indicating the flavor profile of each dish. The log-odds of a dish being vegetarian are modeled as a linear function of its flavor profile.
+
+This model relies on several assumptions:
+
+{Harshini}
+
+In the dataset, all sweet and bitter dishes are vegetarian, resulting in complete separation for those categories. This poses a challenge for frequentist logistic regression, which can yield infinite or undefined parameter estimates. However, the Bayesian approach can still yield valid inference by incorporating informative priors, which effectively regularize the estimates and prevent the model from overfitting to the separation.
+
 ## Bayesian model
 
 ### Choosing Priors
@@ -71,7 +91,7 @@ We’ll assume the betas and sigma are independent. We believe that if a dish is
 
 $\beta_{sweet}$ \~ N(0.75, 0.2)
 
-This prior centers the log-odds increase at 0.75 (approximately corresponding to a 68% chance of being vegetarian, all else equal), while still allowing moderate uncertainty. For the other coefficients, we do not have strong prior opinions, and we allow brms to apply its default weakly informative priors.
+This prior centers the log-odds increase at 0.75, while still allowing moderate uncertainty. For the other coefficients, we do not have strong prior opinions, and we allow brms to apply its default weakly informative priors.
 
 **Prior predictive dist for sweet dish**
 
@@ -130,7 +150,7 @@ beta1 <- rnorm(n_rep, 1.75, 0.5)      # effect for sweet = 1
 
 
 # Compute probabilities for x = 0 and x = 1
-p0 <- plogis(beta0 + beta1 * 0)  # bitter
+p0 <- plogis(beta0 + beta1 * 0)  # not sweet (bitter)
 p1 <- plogis(beta0 + beta1 * 1)  # sweet
 
 # Plot histograms
@@ -146,6 +166,8 @@ legend("topleft", legend=c("Bitter (Reference)", "Sweet"),
 ### Fitting with brms
 
 ```{r}
+set.seed(123)
+
 fit <- brm(
   data = indfood,
   family = bernoulli(link = "logit"),
@@ -166,47 +188,141 @@ fit <- brm(
 summary(fit) 
 ```
 
-### Interpreting Intercepts
+### Interpreting Coefficients
 
-The intercept represents the log-odds of a dish being vegetarian when the flavor is bitter. All other coefficients are interpreted relative to this baseline.
+The intercept represents the log-odds of a dish being vegetarian when the flavor is bitter. All other coefficients are interpreted relative to this baseline. 
 
-The posterior mean for `sweet` is 1.73, telling us dishes with sweet flavor have odds of being vegetarian that are \~5.65 times higher (exp(1.73)) than bitter dishes
+The posterior intercept is 9.68, indicating that the odds of a `bitter` dish being vegetarian are approximately 15,994.5 to 1 (exp(9.68)). That is, bitter dishes are extremely likely to be vegetarian. Translated to probability, the probability of a dish being vegetarian given it is bitter is about 99% ($\frac{1}{1+e^{-9.68}} = 0.99$). 
 
-The posterior mean for `spicy`is -9.44, telling us dishes with sweet flavor have odds of being vegetarian that are \~7.948e-05 times less (exp(-9.44)) than bitter dishes
+The posterior mean for `sweet` is 1.74. So, based on our posterior, we are most confident that the odds of sweet dishes being vegetarian are approximately \~470% ($(e^{1.74} - 1)*100$%) higher than those of bitter dishes. 
 
-```{r}
-exp(-9.44)
-```
+The posterior mean for `spicy` is -8.21. So, based on our posterior, we are most confident that the odds of dishes with spicy flavor being vegetarian are about \~99.97% ($(1 - e^{-8.21})*100$%) lower than those of bitter dishes. 
 
-## Posterior Prediction
+### 95% Credible Intervals
 
 ```{r}
-indfood |>
-  add_epred_draws(fit, ndraws = 500) |>
-  group_by(flavor_profile) |>
-  summarise(mean_pred = mean(.epred),
-            .lower = quantile(.epred, 0.025),
-            .upper = quantile(.epred, 0.975))
+post <- as_draws_df(fit)
+
+theta_bitter <- plogis(post$b_Intercept) #plogis basically just converts to probability
+theta_sweet  <- plogis(post$b_Intercept + post$`b_flavor_profilesweet`)
+theta_spicy  <- plogis(post$b_Intercept + post$`b_flavor_profilespicy`)
+
+thetas <- tibble(
+  bitter = theta_bitter,
+  sweet  = theta_sweet,
+  spicy  = theta_spicy
+)
 
 
+thetas_summary <- thetas |> 
+  pivot_longer(cols = everything(), names_to = "flavor_profile", values_to = "theta") |>
+  group_by(flavor_profile) |> 
+  summarise(
+    mean_theta = mean(theta),
+    .lower = quantile(theta, 0.025),
+    .upper = quantile(theta, 0.975)
+  )
+
+thetas_summary
 ```
 
-**Bitter:(0.933, 1.000)**
+**Bitter:(0.926, 1.000)**
 
-Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among bitter recipes lies between 93.3% and 100%. This indicates bitter dishes are very likely to be vegetarian, which follows our data set where all bitter dishes are vegetarian.
+Based on the posterior distribution, there is a 95% probability that the true probability of a bitter dish being vegetarian lies between 92.6% and 100%. This indicates bitter dishes are very likely to be vegetarian, which aligns with our dataset where all bitter dishes are vegetarian.
 
-**Spicy: (0.742, 0.868)**
+**Spicy: (0.74, 0.872)**
 
-Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among spicy recipes lies between 74.2% and 86.8%. As our data has some of the spicy dishes as non-vegetarian this feels more accurate.
+Based on the posterior distribution, there is a 95% probability that the true probability of a dish being vegetarian, given it is spicy, lies between 74% and 87.2%. As our data has some of the spicy dishes as non-vegetarian this feels more accurate.
 
-**Sweet: (0.988, 1.000)**
+**Sweet: (0.987, 1.000)**
 
-Based on the model and observed data, we are 95% confident that the true proportion of vegetarian dishes among sweet recipes lies between 98.8% and 100%. This supports our prior belief that sweet foods are almost always vegetarian.
+Based on the posterior distribution, there is a 95% probability that the true probability of a dish being vegetarian, given it is sweet, lies between 98.8% and 100%. This supports our prior belief that sweet foods are almost always vegetarian.
+
 
 ```{r}
 pp_check(fit, type = "bars")
 
 ```
+
+### Sensitivity Analysis
+
+Let's change our prior for sweetness and see how it affects the model. First, let's let brms choose the prior.
+
+```{r}
+set.seed(123)
+
+fit <- brm(
+  data = indfood,
+  family = bernoulli(link = "logit"),
+  dum_diet ~ 1 + flavor_profile,
+  iter = 6000,
+  warmup = 1000,
+  control = list(max_treedepth = 15),
+  chains = 4,
+  refresh = 0
+)
+```
+
+```{r}
+summary(fit)
+```
+
+Whoa, those estimates look pretty wild! Without any sort of guidance, the model seems to be struggling with the quasi-complete separation within the data. All of the values are quite large, with very large standard errors. 
+
+Let's try giving it a very tight prior for sweetness. 
+
+```{r}
+set.seed(123)
+
+fit <- brm(
+  data = indfood,
+  family = bernoulli(link = "logit"),
+  dum_diet ~ 1 + flavor_profile,
+  prior = c(
+    prior(normal(5, 0.001), class = "b", coef = "flavor_profilesweet")
+  ),
+  iter = 4000,
+  warmup = 1000,
+  control = list(max_treedepth = 15),
+  chains = 4,
+  refresh = 0
+)
+```
+
+```{r}
+summary(fit)
+```
+The posterior estimates for intercept and spiciness are not incredibly different from what they were before, though a bit more uncertain, than when our prior was a little bit less intense. However, it appears as though the posterior estimate for sweetness is identical to our prior.
+
+Let's try a prior that uses a prior for sweetness that's in the wrong direction. 
+
+```{r}
+set.seed(123)
+
+fit <- brm(
+  data = indfood,
+  family = bernoulli(link = "logit"),
+  dum_diet ~ 1 + flavor_profile,
+  prior = c(
+    prior(normal(-1.75, 0.5), class = "b", coef = "flavor_profilesweet")
+  ),
+  iter = 4000,
+  warmup = 1000,
+  control = list(max_treedepth = 15),
+  chains = 4,
+  refresh = 0
+)
+```
+
+```{r}
+summary(fit)
+```
+
+The posterior for sweetness is, once again, almost identical to the prior that we put in. 
+
+
+This analysis indicates that our model really is sensitive to the prior that we put in. This is most definitely due to the fact that we have quasi-complete separation within our data. When no prior is specified (or rather, when we input the default priors), the model returns very large estimates and standard errors. This is a symptom of quasi-complete separation, where the likelihood is flat and the posterior is poorly identified. When a very tight prior (Normal(5, 0.001)) is imposed sweetness, the posterior exactly matches the prior. This shows the data doesn't override the prior at all, meaning the likelihood contains almost no information about that coefficient (because all sweet dishes are vegetarian). When a strongly incorrect prior is imposed (Normal(-1.75, 0.5)), the posterior again conforms tightly to the prior. This further confirms that the data has no signal to counterbalance or correct the prior (quasi-separation behavior).
+
 
 ## Frequentist Approach:
 
