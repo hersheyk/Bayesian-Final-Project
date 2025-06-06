@@ -252,6 +252,32 @@ fit <- brm(
   data = indfood,
   family = bernoulli(link = "logit"),
   dum_diet ~ 1 + flavor_profile,
+  iter = 6000,
+  warmup = 1000,
+  control = list(max_treedepth = 15),
+  chains = 4,
+  refresh = 0
+)
+```
+
+```{r}
+summary(fit)
+```
+
+Whoa, those estimates look pretty wild! Without any sort of guidance, the model seems to be struggling with the quasi-complete separation within the data. All of the values are quite large, with very large standard errors. 
+
+Let's try giving it a very tight prior for sweetness. 
+
+```{r}
+set.seed(123)
+
+fit <- brm(
+  data = indfood,
+  family = bernoulli(link = "logit"),
+  dum_diet ~ 1 + flavor_profile,
+  prior = c(
+    prior(normal(5, 0.001), class = "b", coef = "flavor_profilesweet")
+  ),
   iter = 4000,
   warmup = 1000,
   control = list(max_treedepth = 15),
@@ -261,9 +287,38 @@ fit <- brm(
 ```
 
 ```{r}
+summary(fit)
+```
+The posterior estimates for intercept and spiciness are not incredibly different from what they were before, though a bit more uncertain, than when our prior was a little bit less intense. However, it appears as though the posterior estimate for sweetness is identical to our prior.
 
+Let's try a prior that uses a prior for sweetness that's in the wrong direction. 
+
+```{r}
+set.seed(123)
+
+fit <- brm(
+  data = indfood,
+  family = bernoulli(link = "logit"),
+  dum_diet ~ 1 + flavor_profile,
+  prior = c(
+    prior(normal(-1.75, 0.5), class = "b", coef = "flavor_profilesweet")
+  ),
+  iter = 4000,
+  warmup = 1000,
+  control = list(max_treedepth = 15),
+  chains = 4,
+  refresh = 0
+)
 ```
 
+```{r}
+summary(fit)
+```
+
+The posterior for sweetness is, once again, almost identical to the prior that we put in. 
+
+
+This analysis indicates that our model really is sensitive to the prior that we put in. This is most definitely due to the fact that we have quasi-complete separation within our data. When no prior is specified (or rather, when we input the default priors), the model returns very large estimates and standard errors. This is a symptom of quasi-complete separation, where the likelihood is flat and the posterior is poorly identified. When a very tight prior (Normal(5, 0.001)) is imposed sweetness, the posterior exactly matches the prior. This shows the data doesn't override the prior at all, meaning the likelihood contains almost no information about that coefficient (because all sweet dishes are vegetarian). When a strongly incorrect prior is imposed (Normal(-1.75, 0.5)), the posterior again conforms tightly to the prior. This further confirms that the data has no signal to counterbalance or correct the prior (quasi-separation behavior).
 
 
 ## Frequentist Approach:
